@@ -1,5 +1,7 @@
-import Data.Array
+import Data.Array.IO
 import Text.Regex
+
+type LightGrid = IOArray (Int, Int) Int
 
 data Instruction = Instruction { operation :: Int -> Int
                                , xmin :: Int
@@ -7,11 +9,6 @@ data Instruction = Instruction { operation :: Int -> Int
                                , ymin :: Int
                                , ymax :: Int
                                }
-
-type LightGrid = Array (Int, Int) Int
-
-blankLightGrid :: LightGrid
-blankLightGrid = array ((0, 0), (999, 999)) [((i, j), 0) | i <- [0..999], j <- [0..999]]
 
 instructionRegex :: Regex
 instructionRegex = mkRegex "(turn on|turn off|toggle) ([0-9]+),([0-9]+) through ([0-9]+),([0-9]+)"
@@ -24,10 +21,18 @@ parseInstruction instruction =
            | optext == "toggle" = (\x -> 1 - x)
     in Instruction op (read xmin) (read xmax) (read ymin) (read ymax)
 
-applyInstruction :: LightGrid -> Instruction -> LightGrid
-applyInstruction array (Instruction op xmin xmax ymin ymax) =
-    array // [((i, j), op (array ! (i, j))) | i <- [xmin..xmax], j <- [ymin..ymax]]
+mutateElement :: LightGrid -> (Int -> Int) -> (Int, Int) -> IO ()
+mutateElement lights op (i, j) = do
+    element <- readArray lights (i, j)
+    writeArray lights (i, j) (op element)
+
+applyInstruction :: LightGrid -> Instruction -> IO ()
+applyInstruction lights (Instruction op xmin xmax ymin ymax) =
+    sequence_ [mutateElement lights op (i, j) | i <- [xmin..xmax], j <- [ymin..ymax]]
 
 main = do
-    instructions <- readFile "instructions.txt"
-    print . sum . foldl applyInstruction blankLightGrid . map parseInstruction $ lines instructions
+    instructions <- fmap (map parseInstruction . lines) $ readFile "instructions.txt"
+    lights <- newArray ((0, 0), (999, 999)) 0 :: IO LightGrid
+    sequence_ $ map (applyInstruction lights) instructions
+    values <- getElems lights
+    print $ sum values
